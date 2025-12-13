@@ -15,7 +15,7 @@ denorm:{minD+x*maxD-minD};
 
 .u.init[];
 ort:.pykx.import[`onnxruntime];
-mP:.pykx.eval"\"usdeur_model_no_hidden.onnx\""    / (m)odel (P)ath
+mP:.pykx.eval"\"models/usdeur_model_no_hidden.onnx\""    / (m)odel (P)ath
 session:ort[`:InferenceSession] mP;               / create inference session
                                               
 h_tp:hopen 5010;

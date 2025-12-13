@@ -11,7 +11,7 @@ norm:{%[x-minD;maxD-minD]};
 denorm:{minD+x*maxD-minD};
 
 .u.init[];
-theta_final:@[;`theta](enlist"F";enlist",")0:`:weights.csv;  / load trained weights
+theta_final:@[;`theta](enlist"F";enlist",")0:`$":models/weights.csv";  / load trained weights
 hgolf:`h`g`o`l!`.ml.lrelu`.ml.dlrelu`.ml.linear`.ml.mseloss / (h=hidden, g=gradient hidden, o=output, l=loss)
 
 h_tp:hopen 5010;
