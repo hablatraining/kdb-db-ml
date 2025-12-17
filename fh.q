@@ -11,4 +11,4 @@ system"l stat.q";
   .fh.tp(".u.upd";`trade;1_value flip .fh.t)
     };
 
-\t 100
+\t 10

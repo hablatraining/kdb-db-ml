@@ -1,55 +1,79 @@
 #!/bin/bash
-
 Q_PATH=q
 SYM=sym
 
+# --- Port Configuration ---
 TP_PORT=5010
 RDB_PORT=5011
-RTE_PORT=5013
 DASH_PORT=10001
 
-SESSION_NAME="kdb_tick_system"
-DASH_DIR="q/dash"
+# Native RTE Ports (Pure q) - Offset +10
+NAT_BASE_PORT=5019
+NAT_WIDE_PORT=5020
+NAT_DEEP_PORT=5021
+NAT_INPT_PORT=5022
 
-# Limpieza previa
-tmux has-session -t $SESSION_NAME 2>/dev/null && tmux kill-session -t $SESSION_NAME
+# PyKX RTE Ports (Python/ONNX)
+PY_BASE_PORT=5029
+PY_WIDE_PORT=5030
+PY_DEEP_PORT=5031
+PY_INPT_PORT=5032
 
-echo "Creando sesión TMUX grande..."
+echo "Starting KDB+ architecture..."
 
-# --- 1. Crear sesión forzando un tamaño grande (200 columnas x 50 filas) ---
-# Esto evita el error "no space for new pane"
-tmux new-session -d -s $SESSION_NAME -x 200 -y 50 -n KDB_System "$Q_PATH tick.q $SYM . -p $TP_PORT"
+# --- 1. Base Infrastructure ---
 
-# --- 2. Lanzar los procesos Tick (Estrategia simplificada) ---
-# En lugar de porcentajes complicados, dividimos y usamos 'tiled' al final.
+# Tickerplant
+$Q_PATH tick.q $SYM . -p $TP_PORT > /dev/null 2>&1 &
+echo " -> Tickerplant started on $TP_PORT"
 
-# Dividir para RDB
-tmux split-window -t $SESSION_NAME:0 "$Q_PATH tick/r.q :$TP_PORT -p $RDB_PORT"
+# # RDB
+# $Q_PATH tick/r.q :$TP_PORT -p $RDB_PORT > /dev/null 2>&1 &
+# echo " -> RDB started on $RDB_PORT"
 
-# Dividir para RTE
-tmux split-window -t $SESSION_NAME:0 "$Q_PATH rte.q :$TP_PORT -p $RTE_PORT"
+# --- 2. Inference Engines (RTEs) ---
 
-# Dividir para FH
-tmux split-window -t $SESSION_NAME:0 "$Q_PATH fh.q :$TP_PORT"
+echo "Starting RTE pairs (PyKX vs Native)..."
 
-# FORZAR DISEÑO MOSAICO (TILED)
-# Esto reajusta automáticamente todos los paneles para que quepan bien
-tmux select-layout -t $SESSION_NAME:0 tiled
+# # CASE 0: BASELINE (Default)
+# $Q_PATH rte_pykx_ff.q :$TP_PORT -p $PY_BASE_PORT -top 10 6 1 -label baseline > /dev/null 2>&1 &
+# $Q_PATH rte_ff.q      :$TP_PORT -p $NAT_BASE_PORT -top 10 6 1 -label baseline > /dev/null 2>&1 &
 
+# CASE 1: WIDE (Compute-intensive)
+$Q_PATH tick/rte_pykx_ff.q :$TP_PORT -p $PY_WIDE_PORT -top 200 1024 512 1 -label wide > /dev/null 2>&1 &
+$Q_PATH tick/rte_ff.q      :$TP_PORT -p $NAT_WIDE_PORT -top 200 1024 512 1 -label wide > /dev/null 2>&1 &
 
-# --- 3. Dashboard (En una ventana nueva) ---
+# CASE 2: DEEP (Overhead-intensive)
+$Q_PATH tick/rte_pykx_ff.q :$TP_PORT -p $PY_DEEP_PORT -top 10 16 16 16 16 16 16 16 16 1 -label deep > /dev/null 2>&1 &
+$Q_PATH tick/rte_ff.q      :$TP_PORT -p $NAT_DEEP_PORT -top 10 16 16 16 16 16 16 16 16 1 -label deep > /dev/null 2>&1 &
 
-DASH_COMMAND="cd $DASH_DIR && $Q_PATH dash.q -p $DASH_PORT -u 1"
-tmux new-window -t $SESSION_NAME:1 -n Dashboard "$DASH_COMMAND"
+# CASE 3: INPUT (I/O-intensive)
+$Q_PATH tick/rte_pykx_ff.q :$TP_PORT -p $PY_INPT_PORT -top 2000 16 8 1 -label input > /dev/null 2>&1 &
+$Q_PATH tick/rte_ff.q      :$TP_PORT -p $NAT_INPT_PORT -top 2000 16 8 1 -label input > /dev/null 2>&1 &
 
+# --- 3. Final Components ---
 
-# --- Finalización ---
-tmux select-window -t $SESSION_NAME:0
-echo "Sistema kdb+ lanzado exitosamente."
-echo "-----------------------------------"
-echo "TP  : $TP_PORT"
-echo "RDB : $RDB_PORT"
-echo "RTE : $RTE_PORT"
-echo "DASH: $DASH_PORT (http://localhost:$DASH_PORT)"
-echo "-----------------------------------"
-echo "Ejecuta: tmux attach -t $SESSION_NAME"
+# Feed Handler
+$Q_PATH fh.q :$TP_PORT > /dev/null 2>&1 &
+echo " -> Feed Handler connected"
+
+# Dashboard (Run from its directory to load dependencies)
+(cd ../q/dash && $Q_PATH dash.q -p $DASH_PORT -u 1 > /dev/null 2>&1 &)
+echo " -> Dashboard started on $DASH_PORT"
+
+# --- Summary ---
+echo ""
+echo "====================================================="
+echo " SYSTEM RUNNING (Background)"
+echo "====================================================="
+echo "INFRASTRUCTURE:"
+echo "  TP: $TP_PORT | RDB: $RDB_PORT | DASH: $DASH_PORT"
+echo ""
+echo "LATENCY TESTS (PyKX vs Native):"
+echo "  TYPE       | PYKX PORT | NATIVE PORT | TOPOLOGY"
+echo "  -----------|-----------|-------------|----------------"
+echo "  BASELINE   | $PY_BASE_PORT      | $NAT_BASE_PORT        | (Default)"
+echo "  WIDE       | $PY_WIDE_PORT      | $NAT_WIDE_PORT        | (200; 1024 512; 1)"
+echo "  DEEP       | $PY_DEEP_PORT      | $NAT_DEEP_PORT        | (10; 8x16; 1)"
+echo "  INPUT      | $PY_INPT_PORT      | $NAT_INPT_PORT        | (2000; 16 8; 1)"
+echo "====================================================="
